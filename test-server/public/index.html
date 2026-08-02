@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BG Geolocation — Live Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      display: flex; flex-direction: column; height: 100vh;
+    }
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 12px 20px; background: #1e293b;
+    }
+    header h1 { font-size: 16px; color: #f8fafc; }
+    .stat { font-size: 13px; color: #94a3b8; }
+    .stat b { color: #38bdf8; }
+    .spacer { flex: 1; }
+    button {
+      background: #dc2626; color: white; border: none; border-radius: 8px;
+      padding: 8px 14px; font-size: 13px; cursor: pointer;
+    }
+    button:hover { opacity: 0.85; }
+    button.secondary { background: #2563eb; margin-right: 8px; }
+    button.secondary.active { background: #16a34a; }
+    #map.drawing { cursor: crosshair; }
+    .zone-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; color: #cbd5e1; padding: 4px 0;
+    }
+    .zone-row button {
+      background: none; color: #f87171; padding: 0 4px; font-size: 14px;
+    }
+
+    /* Vehicle marker: an arrow rotated to the direction of travel. The
+       transition makes it glide between fixes instead of teleporting. */
+    .vehicle-marker { transition: transform 0.9s linear; will-change: transform; }
+    .vehicle-marker svg { display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6)); }
+    .vehicle-label {
+      position: absolute; top: 34px; left: 50%; transform: translateX(-50%);
+      white-space: nowrap; font-size: 10px; font-weight: 600; color: #f8fafc;
+      background: rgba(15, 23, 42, 0.85); padding: 1px 6px; border-radius: 6px;
+    }
+    /* Halo pulses only while the vehicle is actually moving. */
+    .vehicle-pulse {
+      position: absolute; top: 50%; left: 50%; width: 34px; height: 34px;
+      margin: -17px 0 0 -17px; border-radius: 50%;
+      animation: vehiclePulse 1.6s ease-out infinite;
+    }
+    @keyframes vehiclePulse {
+      0%   { transform: scale(0.5); opacity: 0.65; }
+      100% { transform: scale(2.1); opacity: 0; }
+    }
+    .main { flex: 1.4; display: flex; min-height: 300px; }
+    #map { flex: 1; }
+    #devices {
+      width: 260px; overflow-y: auto; background: #16213a;
+      border-left: 1px solid #1e293b; padding: 10px;
+    }
+    #devices h2 {
+      font-size: 11px; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .device {
+      padding: 8px; border-radius: 8px; background: #1e293b;
+      margin-bottom: 8px; cursor: pointer; border-left: 4px solid #38bdf8;
+    }
+    .device:hover { background: #24334d; }
+    .device.active { outline: 1px solid #38bdf8; }
+    .device-name { font-size: 13px; color: #f8fafc; font-weight: 600; }
+    .device-meta { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+    .device-empty { font-size: 12px; color: #64748b; }
+    .table-wrap { flex: 1; overflow-y: auto; background: #0f172a; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 6px 12px; text-align: left; white-space: nowrap; }
+    th {
+      position: sticky; top: 0; background: #1e293b; color: #94a3b8;
+      font-size: 11px; text-transform: uppercase;
+    }
+    tr:nth-child(even) { background: #16213a; }
+    .moving { color: #4ade80; } .still { color: #fbbf24; }
+    .hint { color: #64748b; font-size: 10px; }
+    .warn { color: #fbbf24; }
+    .late { color: #fb923c; font-size: 10px; }
+    .empty { padding: 30px; text-align: center; color: #64748b; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📍 BG Geolocation Dashboard</h1>
+    <span class="stat" id="live">⚪ connecting…</span>
+    <span class="stat" id="db-status">⏳ Checking database…</span>
+    <span class="stat">Points: <b id="count">0</b></span>
+    <span class="stat">Storage: <b id="storage">—</b></span>
+    <span class="stat">Last: <b id="last">—</b></span>
+    <span class="stat">Battery: <b id="battery">—</b></span>
+    <span class="spacer"></span>
+    <button id="snap" class="secondary">🛣 Snap to roads</button>
+    <button id="draw" class="secondary">✏️ Draw zone</button>
+    <button id="clear">🗑 Clear all</button>
+  </header>
+
+  <div class="main">
+    <div id="map"></div>
+    <aside id="devices">
+      <h2>Devices</h2>
+      <div id="device-list"><span class="device-empty">No devices yet</span></div>
+      <h2 style="margin-top:14px">Zones</h2>
+      <div id="zone-list"><span class="device-empty">None — click "Draw zone"</span></div>
+    </aside>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Device</th><th>Received</th><th>Recorded</th><th>Latitude</th><th>Longitude</th>
+          <th>±Acc (m)</th><th>Speed</th><th>State</th><th>Activity</th>
+          <th>Battery</th><th>Odometer</th><th>Event</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr><td colspan="12" class="empty">Waiting for the app to upload locations…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // When the server runs with API_KEY set, pass it as ?key=… in the
+    // dashboard URL; it is remembered locally for subsequent visits.
+    const urlKey = new URLSearchParams(location.search).get('key');
+    if (urlKey) localStorage.setItem('bgGeoApiKey', urlKey);
+    const apiKey = urlKey || localStorage.getItem('bgGeoApiKey') || '';
+    const withKey = (path) =>
+      apiKey ? path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(apiKey) : path;
+
+    const map = L.map('map').setView([20.5937, 78.9629], 5); // India
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+    }).addTo(map);
+
+    // One coloured track + marker per device, created on first sight.
+    const DEVICE_COLORS = [
+      '#38bdf8', '#4ade80', '#fbbf24', '#f87171', '#c084fc',
+      '#fb923c', '#2dd4bf', '#f472b6', '#a3e635', '#60a5fa',
+    ];
+    const colorAssignments = new Map();
+    function colorFor(deviceId) {
+      if (!colorAssignments.has(deviceId)) {
+        colorAssignments.set(
+          deviceId,
+          DEVICE_COLORS[colorAssignments.size % DEVICE_COLORS.length]
+        );
+      }
+      return colorAssignments.get(deviceId);
+    }
+
+    /**
+     * Live vehicle marker: an arrow pointing along the direction of travel,
+     * with a pulsing halo while the device is moving. Built as a DivIcon so
+     * the rotation can be CSS-animated — the marker glides and turns between
+     * fixes rather than jumping.
+     */
+    function vehicleIcon(deviceId, deviceName, headingDegrees, isMoving) {
+      const color = colorFor(deviceId);
+      const rotation = headingDegrees >= 0 ? headingDegrees : 0;
+      const pulse = isMoving
+        ? `<span class="vehicle-pulse" style="background:${color}"></span>`
+        : '';
+      // The arrow points north at 0°; Leaflet headings are clockwise from north.
+      const arrow = `
+        <div class="vehicle-marker" style="transform: rotate(${rotation}deg)">
+          <svg width="30" height="30" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="11" fill="${color}" opacity="0.25"/>
+            <path d="M12 2.5 L18.5 20 L12 15.8 L5.5 20 Z"
+                  fill="${color}" stroke="#f8fafc" stroke-width="1.2"
+                  stroke-linejoin="round"/>
+          </svg>
+        </div>
+        ${pulse}
+        <span class="vehicle-label">${deviceName || 'device'}</span>`;
+
+      return L.divIcon({
+        className: '', // no default Leaflet chrome
+        html: `<div style="position:relative;width:30px;height:30px">${arrow}</div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
+    }
+
+    const deviceLayers = new Map(); // deviceId → { track, marker }
+    function layersFor(deviceId) {
+      if (!deviceLayers.has(deviceId)) {
+        const color = colorFor(deviceId);
+        deviceLayers.set(deviceId, {
+          track: L.polyline([], { color, weight: 3 }).addTo(map),
+          marker: L.marker([0, 0], {
+            icon: vehicleIcon(deviceId, '', -1, false),
+            zIndexOffset: 1000,
+          }).addTo(map),
+        });
+      }
+      return deviceLayers.get(deviceId);
+    }
+
+    /**
+     * Frame-by-frame marker animation.
+     *
+     * GPS fixes arrive every 1–12 s; moving the marker straight to each one
+     * makes the vehicle teleport. Ride-hailing apps interpolate between fixes
+     * so motion looks continuous, which is what this does: each new position
+     * becomes a target, and the marker is eased toward it on every animation
+     * frame. Heading is interpolated the short way around the compass so the
+     * arrow never spins 350° to turn 10°.
+     */
+    const vehicleAnimations = new Map(); // deviceId → animation state
+    const lastFixAtByDevice = new Map(); // deviceId → wall-clock of last fix
+
+    function animateVehicleTo(deviceId, targetLatLng, targetHeading, durationMs) {
+      const layers = layersFor(deviceId);
+      const existing = vehicleAnimations.get(deviceId);
+      const from = existing ? existing.current : targetLatLng;
+      const fromHeading = existing ? existing.currentHeading : targetHeading;
+
+      const state = {
+        from,
+        to: targetLatLng,
+        current: from,
+        fromHeading,
+        toHeading: targetHeading,
+        currentHeading: fromHeading,
+        startedAt: performance.now(),
+        duration: Math.max(300, Math.min(durationMs, 15000)),
+      };
+      vehicleAnimations.set(deviceId, state);
+
+      if (existing && existing.frameId) cancelAnimationFrame(existing.frameId);
+
+      const stepFrame = (now) => {
+        const progress = Math.min((now - state.startedAt) / state.duration, 1);
+        // Ease-out: fast at first, settling as it reaches the fix — closer to
+        // how a vehicle actually arrives than a linear crawl.
+        const eased = 1 - Math.pow(1 - progress, 2);
+
+        const latitude = state.from[0] + (state.to[0] - state.from[0]) * eased;
+        const longitude = state.from[1] + (state.to[1] - state.from[1]) * eased;
+        state.current = [latitude, longitude];
+
+        // Shortest angular path, so a 350°→10° turn goes forward 20°.
+        let headingDelta = ((state.toHeading - state.fromHeading + 540) % 360) - 180;
+        state.currentHeading = state.fromHeading + headingDelta * eased;
+
+        layers.marker.setLatLng(state.current);
+        const element = layers.marker.getElement();
+        const arrow = element && element.querySelector('.vehicle-marker');
+        if (arrow) arrow.style.transform = `rotate(${state.currentHeading}deg)`;
+
+        if (progress < 1) {
+          state.frameId = requestAnimationFrame(stepFrame);
+        } else {
+          state.frameId = null;
+        }
+      };
+      state.frameId = requestAnimationFrame(stepFrame);
+    }
+
+    /** Point the vehicle along its heading and reflect whether it is moving. */
+    function updateVehicleMarker(deviceId, entry) {
+      const layers = layersFor(deviceId);
+      const heading = entry.coords && entry.coords.heading >= 0 ? entry.coords.heading : -1;
+      const moving = motionState(entry).moving;
+      layers.marker.setIcon(
+        vehicleIcon(deviceId, entry.deviceName, heading, moving)
+      );
+      const speed = entry.coords && entry.coords.speed >= 0
+        ? (entry.coords.speed * 3.6).toFixed(1) + ' km/h' : 'stationary';
+      layers.marker.bindTooltip(
+        `${entry.deviceName || 'device'} · ${speed}`,
+        { direction: 'top', offset: [0, -18] }
+      );
+    }
+
+    let hasCentered = false;
+    let selectedDeviceId = null; // null = show all devices
+    let snapToRoads = false;
+    const matchedLayers = new Map(); // deviceId → polyline of road-matched geometry
+
+    /**
+     * Road-matched track: the raw GPS polyline cuts corners and drifts off the
+     * carriageway, so ask the server to snap the trace to the road network and
+     * draw that instead. The raw line is dimmed rather than hidden so you can
+     * see what was corrected.
+     */
+    async function refreshMatchedTracks() {
+      if (!snapToRoads) return;
+      const response = await fetch(withKey('/api/devices'));
+      const { devices } = await response.json();
+
+      for (const device of devices) {
+        if (selectedDeviceId && device.deviceId !== selectedDeviceId) continue;
+        try {
+          const matchResponse = await fetch(
+            withKey('/api/track/' + encodeURIComponent(device.deviceId) + '/matched')
+          );
+          const { geometry, matched } = await matchResponse.json();
+          if (!geometry || geometry.length < 2) continue;
+
+          let layer = matchedLayers.get(device.deviceId);
+          if (!layer) {
+            layer = L.polyline([], {
+              color: colorFor(device.deviceId),
+              weight: 5,
+              opacity: 0.95,
+            }).addTo(map);
+            matchedLayers.set(device.deviceId, layer);
+          }
+          layer.setLatLngs(geometry);
+          layer.setStyle({ dashArray: matched ? null : '6,6' }); // dashed = unmatched fallback
+
+          // Dim the raw trace so the corrected path reads as primary.
+          const raw = deviceLayers.get(device.deviceId);
+          if (raw) raw.track.setStyle({ opacity: 0.25, weight: 2 });
+        } catch {} // transient failure — retry on the next tick
+      }
+    }
+
+    function clearMatchedTracks() {
+      for (const layer of matchedLayers.values()) map.removeLayer(layer);
+      matchedLayers.clear();
+      for (const layers of deviceLayers.values()) {
+        layers.track.setStyle({ opacity: 1, weight: 3 });
+      }
+    }
+
+    /**
+     * Physical motion, derived from the data rather than the SDK's `is_moving`
+     * flag — that flag means "tracking is in high-power mode", which stays true
+     * in realtime mode even while the device sits still. Speed is the primary
+     * signal; activity recognition breaks ties when speed is unavailable.
+     */
+    function motionState(entry) {
+      const speed = entry.coords ? entry.coords.speed : -1;
+      const activity = entry.activity || {};
+      const activityType = activity.type || 'unknown';
+      const confidence = typeof activity.confidence === 'number' ? activity.confidence : 0;
+      const hasSpeed = typeof speed === 'number' && speed >= 0;
+
+      // Activity recognition is purpose-built for this and beats GPS speed,
+      // which jitters up to ~2 m/s on a completely stationary phone.
+      if (activityType === 'still' && confidence >= 60) {
+        return { moving: false, label: '🛑 still' };
+      }
+      const movingActivities = ['walking', 'running', 'on_foot', 'on_bicycle', 'in_vehicle'];
+      if (movingActivities.includes(activityType) && confidence >= 60) {
+        return { moving: true, label: '🚶 ' + activityType.replace('_', ' ') };
+      }
+
+      // No trustworthy activity reading — fall back to speed, with a threshold
+      // above typical stationary GPS noise.
+      if (hasSpeed) {
+        return speed >= 2
+          ? { moving: true, label: '🚶 moving' }
+          : { moving: false, label: '🛑 still' };
+      }
+      return { moving: false, label: '❔ unknown' };
+    }
+
+    /** Human-readable duration: 45s, 3m 20s, 1h 5m. */
+    function formatDuration(milliseconds) {
+      const totalSeconds = Math.round((milliseconds || 0) / 1000);
+      if (totalSeconds < 60) return totalSeconds + 's';
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      if (minutes < 60) return minutes + 'm' + (seconds ? ' ' + seconds + 's' : '');
+      const hours = Math.floor(minutes / 60);
+      return hours + 'h' + (minutes % 60 ? ' ' + (minutes % 60) + 'm' : '');
+    }
+
+    /** One table row for a location record. */
+    function buildRow(entry) {
+      const c = entry.coords;
+      const state = motionState(entry);
+      const stateClass = state.moving ? 'moving' : 'still';
+      // Flag when the SDK is streaming at full power despite no real movement.
+      const stateLabel = state.label +
+        (entry.is_moving && !state.moving ? ' <span class="hint">(tracking on)</span>' : '');
+      return '<tr>' +
+        '<td style="color:' + colorFor(entry.deviceId) + '">' +
+          (entry.deviceName || 'Unknown') + '</td>' +
+        '<td>' + new Date(entry.receivedAt).toLocaleTimeString() + '</td>' +
+        '<td>' + new Date(entry.timestamp).toLocaleTimeString() + '</td>' +
+        '<td>' + c.latitude.toFixed(6) + '</td>' +
+        '<td>' + c.longitude.toFixed(6) + '</td>' +
+        '<td>' + Math.round(c.accuracy) + '</td>' +
+        '<td>' + (c.speed >= 0 ? (c.speed * 3.6).toFixed(1) + ' km/h' : '—') + '</td>' +
+        '<td class="' + stateClass + '">' + stateLabel + '</td>' +
+        '<td>' + (entry.activity ? entry.activity.type + ' ' + entry.activity.confidence + '%' : '—') + '</td>' +
+        '<td>' + (entry.battery && entry.battery.level >= 0
+          ? Math.round(entry.battery.level * 100) + '%' + (entry.battery.is_charging ? ' ⚡' : '')
+          : '—') + '</td>' +
+        '<td>' + (entry.odometer / 1000).toFixed(2) + ' km</td>' +
+        // Flag records that reached the server long after they were recorded —
+        // the visible fingerprint of an offline period being flushed.
+        '<td>' + (entry.event || '') +
+          (entry.deliveryLagMs > 30000
+            ? ' <span class="late">⏳ late ' + formatDuration(entry.deliveryLagMs) + '</span>'
+            : '') +
+        '</td>' +
+      '</tr>';
+    }
+
+    /** Insert a live-pushed record at the top of the table. */
+    function prependTableRow(entry) {
+      const tbody = document.getElementById('rows');
+      if (tbody.querySelector('.empty')) tbody.innerHTML = '';
+      tbody.insertAdjacentHTML('afterbegin', buildRow(entry));
+      while (tbody.rows.length > 50) tbody.deleteRow(50);
+    }
+
+    async function refresh() {
+      try {
+        const query = '/api/locations?limit=1000' +
+          (selectedDeviceId ? '&device=' + encodeURIComponent(selectedDeviceId) : '');
+        const response = await fetch(withKey(query));
+        const data = await response.json();
+        render(data);
+        await refreshDevices();
+      } catch {} // server briefly unavailable — retry next tick
+    }
+
+    /** Device panel: one card per phone, click to isolate its track. */
+    async function refreshDevices() {
+      const response = await fetch(withKey('/api/devices'));
+      const { devices } = await response.json();
+      const container = document.getElementById('device-list');
+
+      if (devices.length === 0) {
+        container.innerHTML = '<span class="device-empty">No devices yet</span>';
+        return;
+      }
+
+      // Liveness inferred from silence — an app cannot report its own
+      // uninstall, so "gone quiet" is the strongest device-side signal.
+      const LIVENESS = {
+        'active': { icon: '🟢', label: 'active' },
+        'idle': { icon: '🟡', label: 'idle' },
+        'offline': { icon: '🔴', label: 'offline' },
+        'likely-removed': { icon: '⚫', label: 'uninstalled?' },
+      };
+
+      container.innerHTML = devices.map((device) => {
+        const latest = device.latest || {};
+        const battery = latest.battery && latest.battery.level >= 0
+          ? Math.round(latest.battery.level * 100) + '%' : '—';
+        const state = motionState(latest).label;
+        const isActive = selectedDeviceId === device.deviceId;
+        const liveness = LIVENESS[device.status] || LIVENESS.offline;
+        // Sync health: queued backlog, outages and link quality, so a device
+        // that is offline reads as "queueing" rather than silently absent.
+        let syncLine = '';
+        const sync = device.sync;
+        if (sync) {
+          const parts = [];
+          if (!sync.deviceOnline) parts.push('<span class="warn">📴 offline</span>');
+          if (sync.queuedRecords > 0) parts.push('📦 ' + sync.queuedRecords + ' queued');
+          if (sync.networkSlow) parts.push('<span class="warn">🐢 slow link</span>');
+          else if (sync.latencyMs > 0) parts.push('⚡ ' + sync.latencyMs + 'ms');
+          if (sync.outageCount > 0) {
+            parts.push('⚠ ' + sync.outageCount + ' outage' +
+              (sync.outageCount > 1 ? 's' : '') +
+              ' · ' + formatDuration(sync.totalOfflineMs) + ' total');
+          }
+          if (parts.length) syncLine = '<div class="device-meta">' + parts.join(' · ') + '</div>';
+        }
+
+        return '<div class="device' + (isActive ? ' active' : '') + '"' +
+          ' style="border-left-color:' + colorFor(device.deviceId) + '"' +
+          ' data-device="' + device.deviceId + '">' +
+          '<div class="device-name">' + liveness.icon + ' ' + device.deviceName + '</div>' +
+          '<div class="device-meta">' + state + ' · 🔋 ' + battery + '</div>' +
+          '<div class="device-meta">' + device.count + ' points · ' +
+            new Date(device.lastSeen).toLocaleTimeString() +
+            ' · ' + liveness.label + '</div>' +
+          syncLine +
+        '</div>';
+      }).join('');
+
+      container.querySelectorAll('.device').forEach((element) => {
+        element.addEventListener('click', () => {
+          const clicked = element.getAttribute('data-device');
+          selectedDeviceId = selectedDeviceId === clicked ? null : clicked;
+          hasCentered = false; // recentre on the newly selected device
+          refresh();
+        });
+      });
+    }
+
+    function render(data) {
+      const locations = data.locations;
+      document.getElementById('count').textContent = data.count;
+      document.getElementById('storage').textContent = data.storage;
+
+      // Group points per device; API returns newest-first, polylines want
+      // oldest-first.
+      const pointsByDevice = new Map();
+      for (const entry of [...locations].reverse()) {
+        const deviceId = entry.deviceId || 'unknown';
+        if (!pointsByDevice.has(deviceId)) pointsByDevice.set(deviceId, []);
+        pointsByDevice.get(deviceId).push([entry.coords.latitude, entry.coords.longitude]);
+      }
+
+      // Clear tracks for devices that have no points in this view (e.g. filtered out).
+      for (const [deviceId, layers] of deviceLayers) {
+        if (!pointsByDevice.has(deviceId)) {
+          layers.track.setLatLngs([]);
+          map.removeLayer(layers.marker);
+        }
+      }
+
+      // Newest record per device, for marker heading and motion state.
+      const newestByDevice = new Map();
+      for (const entry of locations) {
+        const deviceId = entry.deviceId || 'unknown';
+        if (!newestByDevice.has(deviceId)) newestByDevice.set(deviceId, entry);
+      }
+
+      for (const [deviceId, points] of pointsByDevice) {
+        const layers = layersFor(deviceId);
+        layers.track.setLatLngs(points);
+        const newest = points[points.length - 1];
+        layers.marker.setLatLng(newest).addTo(map);
+        const newestRecord = newestByDevice.get(deviceId);
+        if (newestRecord) updateVehicleMarker(deviceId, newestRecord);
+        if (!hasCentered) { map.setView(newest, 16); hasCentered = true; }
+      }
+
+      if (locations.length > 0) {
+        const latest = locations[0];
+        document.getElementById('last').textContent =
+          new Date(latest.receivedAt).toLocaleTimeString();
+        const level = latest.battery && latest.battery.level >= 0
+          ? Math.round(latest.battery.level * 100) + '%' : '—';
+        document.getElementById('battery').textContent = level;
+      }
+
+      const rows = locations.slice(0, 50).map(buildRow);
+      if (rows.length > 0) {
+        document.getElementById('rows').innerHTML = rows.join('');
+      }
+    }
+
+    document.getElementById('clear').addEventListener('click', async () => {
+      if (!confirm('Delete all stored locations?')) return;
+      await fetch(withKey('/api/locations'), { method: 'DELETE' });
+      track.setLatLngs([]);
+      hasCentered = false;
+      document.getElementById('rows').innerHTML =
+        '<tr><td colspan="12" class="empty">Cleared. Waiting for new uploads…</td></tr>';
+      refresh();
+    });
+
+    // ── Database connection status: header pill + one-time alert ─────────
+    let dbAlertShown = false;
+    async function checkDbStatus() {
+      const pill = document.getElementById('db-status');
+      try {
+        const response = await fetch(withKey('/api/status'));
+        if (response.status === 401) {
+          pill.textContent = '🔒 API key required — open this page with ?key=YOUR_KEY';
+          pill.style.color = '#fbbf24';
+          return;
+        }
+        const status = await response.json();
+        if (status.mongoConnected) {
+          pill.textContent = '🟢 MongoDB Atlas: connected (' + status.database + ')';
+          pill.style.color = '#4ade80';
+        } else {
+          pill.textContent = '🔴 MongoDB: NOT connected — temporary memory only';
+          pill.style.color = '#f87171';
+        }
+        if (!dbAlertShown) {
+          dbAlertShown = true;
+          alert(status.mongoConnected
+            ? '✅ Connected to MongoDB Atlas\nDatabase: ' + status.database +
+              '\n\nLocations from the app will be stored permanently.'
+            : '⚠️ NOT connected to MongoDB!\nRecords will be kept in memory only and lost on restart.\nCheck the server console for the reason.');
+        }
+      } catch {
+        pill.textContent = '🔴 Server unreachable';
+        pill.style.color = '#f87171';
+      }
+    }
+
+    /**
+     * Realtime updates over Server-Sent Events: the map moves the instant a
+     * device uploads, with no polling delay. Falls back to a slow poll only as
+     * a safety net if the stream drops.
+     */
+    function connectRealtimeStream() {
+      const source = new EventSource(withKey('/api/stream'));
+      const liveBadge = document.getElementById('live');
+
+      source.addEventListener('open', () => {
+        liveBadge.textContent = '🟢 LIVE';
+        liveBadge.style.color = '#4ade80';
+      });
+
+      source.addEventListener('locations', (event) => {
+        const { locations } = JSON.parse(event.data);
+        for (const entry of locations) {
+          if (selectedDeviceId && entry.deviceId !== selectedDeviceId) continue;
+          appendLivePoint(entry);
+        }
+      });
+
+      source.addEventListener('zone', (event) => {
+        const { deviceName, zone, action } = JSON.parse(event.data);
+        const badge = document.getElementById('live');
+        badge.textContent = (action === 'ENTER' ? '🟢 ' : '🔴 ') + deviceName + ' ' +
+          action + ' ' + zone;
+        setTimeout(() => { badge.textContent = '🟢 LIVE'; }, 6000);
+      });
+
+      source.addEventListener('zones-changed', () => refreshZones());
+
+      source.addEventListener('error', () => {
+        liveBadge.textContent = '🟡 reconnecting…';
+        liveBadge.style.color = '#fbbf24';
+      });
+    }
+
+    /** Extend a device's track immediately with a freshly pushed point. */
+    function appendLivePoint(entry) {
+      const deviceId = entry.deviceId || 'unknown';
+      const layers = layersFor(deviceId);
+      const position = [entry.coords.latitude, entry.coords.longitude];
+
+      layers.track.addLatLng(position);
+      layers.marker.addTo(map);
+      updateVehicleMarker(deviceId, entry);
+
+      // Glide to the new fix over roughly the gap since the previous one, so
+      // the marker is still travelling when the next arrives — continuous
+      // motion rather than a hop followed by a pause.
+      const previousAt = lastFixAtByDevice.get(deviceId);
+      const gapMs = previousAt ? Date.now() - previousAt : 1000;
+      lastFixAtByDevice.set(deviceId, Date.now());
+      const heading = entry.coords.heading >= 0 ? entry.coords.heading : 0;
+      animateVehicleTo(deviceId, position, heading, gapMs);
+
+      map.panTo(position, { animate: true, duration: 1.0 });
+      hasCentered = true;
+
+      document.getElementById('last').textContent =
+        new Date(entry.receivedAt).toLocaleTimeString();
+      if (entry.battery && entry.battery.level >= 0) {
+        document.getElementById('battery').textContent =
+          Math.round(entry.battery.level * 100) + '%';
+      }
+      const total = parseInt(document.getElementById('count').textContent, 10) || 0;
+      document.getElementById('count').textContent = total + 1;
+
+      prependTableRow(entry);
+      refreshDevices();
+    }
+
+    // ── Drawing zones on the map ──────────────────────────────────────────
+    // Click "Draw zone", then click the map to place a circular zone. The
+    // server checks every incoming location against these and pushes
+    // ENTER/EXIT events — geofencing evaluated server-side, so it needs no
+    // change on the device.
+    const zoneLayers = new Map();
+    let drawingMode = false;
+
+    const drawButton = document.getElementById('draw');
+    drawButton.addEventListener('click', () => {
+      drawingMode = !drawingMode;
+      drawButton.classList.toggle('active', drawingMode);
+      drawButton.textContent = drawingMode ? '✏️ Click map…' : '✏️ Draw zone';
+      document.getElementById('map').classList.toggle('drawing', drawingMode);
+    });
+
+    map.on('click', async (event) => {
+      if (!drawingMode) return;
+      const radiusText = prompt('Zone radius in metres:', '200');
+      if (radiusText === null) return;
+      const radius = parseFloat(radiusText);
+      if (!isFinite(radius) || radius <= 0) return alert('Enter a positive number.');
+      const name = prompt('Zone name:', 'Zone ' + (zoneLayers.size + 1)) || undefined;
+
+      await fetch(withKey('/api/zones'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, latitude: event.latlng.lat, longitude: event.latlng.lng, radius }),
+      });
+      drawingMode = false;
+      drawButton.classList.remove('active');
+      drawButton.textContent = '✏️ Draw zone';
+      document.getElementById('map').classList.remove('drawing');
+      refreshZones();
+    });
+
+    async function refreshZones() {
+      const response = await fetch(withKey('/api/zones'));
+      const { zones } = await response.json();
+
+      // Remove circles for deleted zones.
+      for (const [zoneId, layer] of zoneLayers) {
+        if (!zones.some((zone) => zone.zoneId === zoneId)) {
+          map.removeLayer(layer);
+          zoneLayers.delete(zoneId);
+        }
+      }
+      for (const zone of zones) {
+        if (!zoneLayers.has(zone.zoneId)) {
+          const circle = L.circle([zone.latitude, zone.longitude], {
+            radius: zone.radius, color: '#f472b6', fillColor: '#f472b6', fillOpacity: 0.12,
+          }).addTo(map).bindTooltip(zone.name);
+          zoneLayers.set(zone.zoneId, circle);
+        }
+      }
+
+      const list = document.getElementById('zone-list');
+      list.innerHTML = zones.length === 0
+        ? '<span class="device-empty">None — click "Draw zone"</span>'
+        : zones.map((zone) =>
+            '<div class="zone-row"><span>⭕ ' + zone.name + ' · ' +
+            Math.round(zone.radius) + 'm</span>' +
+            '<button data-zone="' + zone.zoneId + '">✕</button></div>'
+          ).join('');
+
+      list.querySelectorAll('button[data-zone]').forEach((element) => {
+        element.addEventListener('click', async () => {
+          await fetch(withKey('/api/zones/' + element.getAttribute('data-zone')), {
+            method: 'DELETE',
+          });
+          refreshZones();
+        });
+      });
+    }
+
+    const snapButton = document.getElementById('snap');
+    snapButton.addEventListener('click', () => {
+      snapToRoads = !snapToRoads;
+      snapButton.classList.toggle('active', snapToRoads);
+      snapButton.textContent = snapToRoads ? '🛣 Roads ON' : '🛣 Snap to roads';
+      if (snapToRoads) {
+        refreshMatchedTracks();
+      } else {
+        clearMatchedTracks();
+      }
+    });
+
+    // Re-match periodically rather than per point: matching is a network call,
+    // and the corrected path only changes meaningfully as the track grows.
+    setInterval(refreshMatchedTracks, 15000);
+
+    connectRealtimeStream();
+    refreshZones();
+    refresh();
+    checkDbStatus();
+    setInterval(refresh, 30000); // safety-net resync; live updates come via SSE
+    setInterval(checkDbStatus, 10000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "BG Geolocation Expo Example",
+    "slug": "background-geolocation-expo-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "platforms": ["ios", "android"],
+    "ios": {
+      "bundleIdentifier": "com.example.backgroundgeolocation",
+      "infoPlist": {
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "package": "com.example.backgroundgeolocation"
+    },
+    "plugins": [
+      [
+        "react-native-open-background-geolocation",
+        {
+          "locationAlwaysAndWhenInUsePermission": "This demo tracks your route in the background.",
+          "locationWhenInUsePermission": "This demo shows your position on screen.",
+          "motionPermission": "Motion detection reduces battery usage while stationary."
+        }
+      ]
+    ]
+  }
+}

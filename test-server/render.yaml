@@ -1,0 +1,17 @@
+# One-click deploy config for Render (https://render.com) — free tier works.
+# Set MONGODB_URI and API_KEY in the Render dashboard (marked sync: false so
+# secrets are never committed to git).
+services:
+  - type: web
+    name: bg-geolocation-test-server
+    runtime: node
+    plan: free
+    rootDir: test-server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/status
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: API_KEY
+        sync: false
