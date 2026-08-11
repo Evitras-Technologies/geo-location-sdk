@@ -11,6 +11,23 @@ feature works in debug *and* release builds on both platforms.
 > Software; it intentionally mirrors the popular plugin's API shape so existing
 > knowledge transfers directly.
 
+## Project status — read before adopting
+
+This is an early release (`0.1.0`). Being straight about what is proven and
+what is not:
+
+| | Status |
+|---|---|
+| **Android** | Compiles, runs, and has been exercised on real hardware — background tracking, offline queue and sync, geofencing, HTTP upload |
+| **iOS** | **Written but never compiled.** Feature-complete in source and mirrors Android, but it has not been built in Xcode. Treat as unverified |
+| **Tests** | 117 unit tests (79 Kotlin, 38 TypeScript) covering config validation, location filtering, polygon geometry, network accounting and the JS API |
+| **Untested areas** | Motion state machine, SQLite layer and foreground-service lifecycle have no automated coverage |
+| **Field testing** | Limited — a small number of Android devices |
+
+Android use is reasonable if you can test on your target devices. **Do not ship
+to iOS users without compiling and testing it first.** Bug reports and device
+results are the most useful contribution right now.
+
 ---
 
 ## Documentation
