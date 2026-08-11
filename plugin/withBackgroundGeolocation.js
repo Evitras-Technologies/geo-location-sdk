@@ -53,8 +53,13 @@ const ANDROID_PERMISSIONS = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_LOCATION',
   'android.permission.RECEIVE_BOOT_COMPLETED',
+  // Keeps the CPU awake while tracking; without it the processor sleeps when
+  // the screen turns off and background uploads stall.
   'android.permission.WAKE_LOCK',
   'android.permission.POST_NOTIFICATIONS',
+  // Lets the SDK show the system "allow background activity" dialog, which is
+  // required for reliable tracking on Xiaomi / Samsung / Oppo / Vivo devices.
+  'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
 
 function withIosBackgroundGeolocation(config, messages) {

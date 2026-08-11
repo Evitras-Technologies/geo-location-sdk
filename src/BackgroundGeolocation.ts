@@ -149,7 +149,19 @@ class BackgroundGeolocationFacade {
     return NativeModule.getState() as Promise<State>;
   }
 
-  /** Engage location + geofence tracking. Resolves with the new {@link State}. */
+  /**
+   * Engage location + geofence tracking.
+   *
+   * Resolves with the new {@link State}. **Always check `state.enabled`**: if
+   * the user declined location permission the SDK refuses to start and
+   * resolves with `enabled: false` rather than pretending to track. It also
+   * emits `onEnabledChange(false)` and `onProviderChange`, so a UI toggle can
+   * fall back correctly instead of showing "on" while nothing is recorded.
+   *
+   * Recover by calling {@link requestAllPermissions} and then `start()` again,
+   * or set `autoRequestPermissions: true` in {@link ready} to have the SDK
+   * prompt at launch.
+   */
   start(): Promise<State> {
     return NativeModule.start() as Promise<State>;
   }

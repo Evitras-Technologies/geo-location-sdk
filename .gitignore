@@ -10,3 +10,10 @@ example-expo/android/
 example-expo/ios/
 *.log
 .DS_Store
+
+# Build artifacts — a 51 MB APK committed on every rebuild would bloat the
+# repository permanently. Publish releases as GitHub Release assets instead.
+*.apk
+*.aab
+*.tgz
+

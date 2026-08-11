@@ -200,10 +200,36 @@ export default function App(): React.JSX.Element {
   }, [appendToFeed]);
 
   const handleToggleTracking = async (shouldEnable: boolean) => {
-    if (shouldEnable) {
-      await BackgroundGeolocation.start();
-    } else {
+    if (!shouldEnable) {
       await BackgroundGeolocation.stop();
+      return;
+    }
+
+    const state = await BackgroundGeolocation.start();
+    // start() refuses when location permission was declined, and reports
+    // `enabled: false` rather than pretending to track. Tell the user what is
+    // missing and offer the one action that fixes it.
+    if (!state.enabled) {
+      const permissions = await BackgroundGeolocation.getPermissionStatus();
+      setIsTrackingEnabled(false);
+      appendToFeed('start-refused', 'location permission not granted ⚠️');
+      Alert.alert(
+        'Location permission needed',
+        permissions.locationServicesEnabled === false
+          ? 'Location services are switched off on this device. Turn them on, then try again.'
+          : 'Tracking cannot run without location access. Grant it and try again.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Grant',
+            onPress: async () => {
+              await BackgroundGeolocation.requestAllPermissions();
+              const retried = await BackgroundGeolocation.start();
+              setIsTrackingEnabled(retried.enabled);
+            },
+          },
+        ]
+      );
     }
   };
 

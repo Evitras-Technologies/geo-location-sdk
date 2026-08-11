@@ -196,7 +196,19 @@
       if (!deviceLayers.has(deviceId)) {
         const color = colorFor(deviceId);
         deviceLayers.set(deviceId, {
-          track: L.polyline([], { color, weight: 3 }).addTo(map),
+          track: L.polyline([], {
+            color,
+            weight: 4,
+            opacity: 0.9,
+            // Round joins/caps render the path as one continuous stroke;
+            // the default mitre joins leave visible notches at each vertex,
+            // which on a jittery GPS track looks like a dotted line.
+            lineJoin: 'round',
+            lineCap: 'round',
+            // Leaflet simplifies polylines when zoomed out; a low factor keeps
+            // the drawn path faithful to the recorded points.
+            smoothFactor: 1,
+          }).addTo(map),
           marker: L.marker([0, 0], {
             icon: vehicleIcon(deviceId, '', -1, false),
             zIndexOffset: 1000,
@@ -294,6 +306,8 @@
      * draw that instead. The raw line is dimmed rather than hidden so you can
      * see what was corrected.
      */
+    let matchStatus = null;
+
     async function refreshMatchedTracks() {
       if (!snapToRoads) return;
       const response = await fetch(withKey('/api/devices'));
@@ -314,16 +328,35 @@
               color: colorFor(device.deviceId),
               weight: 5,
               opacity: 0.95,
+              // Rounded joins and caps keep the path continuous through
+              // corners instead of showing notches at each vertex.
+              lineJoin: 'round',
+              lineCap: 'round',
             }).addTo(map);
             matchedLayers.set(device.deviceId, layer);
           }
           layer.setLatLngs(geometry);
-          layer.setStyle({ dashArray: matched ? null : '6,6' }); // dashed = unmatched fallback
+          // Always a solid line. Match status is reported in the header rather
+          // than by breaking the path — a dashed line reads as "broken data",
+          // which is misleading when the geometry is perfectly good.
+          matchStatus = matched ? 'matched' : 'unmatched';
 
-          // Dim the raw trace so the corrected path reads as primary.
+          // Dim the raw trace so the corrected path reads as primary, but keep
+          // it visible enough to compare against.
           const raw = deviceLayers.get(device.deviceId);
-          if (raw) raw.track.setStyle({ opacity: 0.25, weight: 2 });
+          if (raw) raw.track.setStyle({ opacity: 0.35, weight: 2 });
         } catch {} // transient failure — retry on the next tick
+      }
+
+      // Tell the user whether the road snap actually succeeded. The public
+      // OSRM demo server is rate limited, so failures are routine.
+      const button = document.getElementById('snap');
+      if (matchStatus === 'matched') {
+        button.textContent = '🛣 Roads ON';
+        button.title = 'Track snapped to the road network';
+      } else if (matchStatus === 'unmatched') {
+        button.textContent = '🛣 Roads (raw)';
+        button.title = 'Road matching unavailable — showing the raw GPS track';
       }
     }
 
@@ -331,8 +364,12 @@
       for (const layer of matchedLayers.values()) map.removeLayer(layer);
       matchedLayers.clear();
       for (const layers of deviceLayers.values()) {
-        layers.track.setStyle({ opacity: 1, weight: 3 });
+        layers.track.setStyle({ opacity: 0.9, weight: 4 });
       }
+      const button = document.getElementById('snap');
+      button.textContent = '🛣 Snap to roads';
+      button.title = '';
+      matchStatus = null;
     }
 
     /**

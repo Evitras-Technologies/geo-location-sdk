@@ -21,7 +21,8 @@ class LocationFiltersTest {
         distanceFilter: Float = 10f,
         metersMoved: Float = 15f,
         secondsElapsed: Double = 5.0,
-        speedJumpFilter: Float = 300f
+        // Matches the SDK default (≈200 km/h), so tests exercise real behaviour.
+        speedJumpFilter: Float = 55f
     ) = LocationFilters.evaluate(
         accuracyMeters = accuracy,
         minimumAccuracyMeters = minimumAccuracy,
@@ -209,7 +210,7 @@ class LocationFiltersTest {
         // 80 m/s (≈290 km/h). The old 300 m/s default let it through.
         assertEquals(
             Rejection.IMPOSSIBLE_SPEED,
-            evaluate(distance = 400f, elapsedSeconds = 5.0, speedJumpFilter = 55f)
+            evaluate(metersMoved = 400f, secondsElapsed = 5.0, speedJumpFilter = 55f)
         )
     }
 
@@ -218,7 +219,7 @@ class LocationFiltersTest {
         // 30 m/s ≈ 108 km/h must not be mistaken for a teleport.
         assertEquals(
             Rejection.NONE,
-            evaluate(distance = 150f, elapsedSeconds = 5.0, speedJumpFilter = 55f)
+            evaluate(metersMoved = 150f, secondsElapsed = 5.0, speedJumpFilter = 55f)
         )
     }
 

@@ -143,18 +143,33 @@ class TrackingEngine private constructor(private val context: Context) {
 
     @Synchronized
     fun start(trackingMode: Int) {
+        // The user can decline location permission, and nothing works without
+        // it. Refuse to start rather than reporting success: previously the SDK
+        // set `enabled = true` and emitted `enabledchange: true` regardless, so
+        // an app would show "tracking on" while nothing was ever recorded, with
+        // no way to discover why.
+        if (!hasLocationPermission()) {
+            config.enabled = false
+            database.appendLog(
+                "warn",
+                "start() refused: location permission has not been granted. " +
+                    "Call requestPermission() or requestAllPermissions(), then start() again."
+            )
+            registerSystemReceivers() // so a later grant surfaces via providerchange
+            EventDispatcher.emit(
+                context, EventDispatcher.EVENT_PROVIDERCHANGE, buildProviderState()
+            )
+            EventDispatcher.emit(context, EventDispatcher.EVENT_ENABLEDCHANGE, false)
+            return
+        }
+
         config.trackingMode = trackingMode
         config.enabled = true
         registerSystemReceivers()
 
         if (trackingMode == TRACKING_MODE_LOCATION) {
-            // Without location permission the service must not start (Android 14
-            // SecurityException); tracking stays dormant until start() is called
-            // again after the user grants permission.
-            if (hasLocationPermission()) {
-                LocationTrackingService.start(context)
-                WatchdogReceiver.schedule(context)
-            }
+            LocationTrackingService.start(context)
+            WatchdogReceiver.schedule(context)
             activityRecognition.start(config.activityRecognitionInterval)
             if (config.stopAfterElapsedMinutes > 0) {
                 mainHandler.postDelayed(

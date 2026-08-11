@@ -44,8 +44,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/react-native-open-background-geolocation.git"
+    "url": "git+https://github.com/Evitras-Technologies/geo-location-sdk.git"
   },
+  "bugs": {
+    "url": "https://github.com/Evitras-Technologies/geo-location-sdk/issues"
+  },
+  "homepage": "https://github.com/Evitras-Technologies/geo-location-sdk#readme",
   "license": "MIT",
   "peerDependencies": {
     "react": "*",
