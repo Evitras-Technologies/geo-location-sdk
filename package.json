@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "test": "jest",
+    "prepare": "bob build",
     "test:android": "cd example-app/android && gradlew :react-native-open-background-geolocation:testReleaseUnitTest",
     "typecheck": "tsc --noEmit",
     "build": "bob build",
