@@ -76,10 +76,10 @@ class RequestBodyBuilderTest {
 
     @Test
     fun `params are merged into the body root`() {
-        val params = JSONObject().put("company_id", 42).put("driver", "nikhil")
+        val params = JSONObject().put("company_id", 42).put("driver", "driver-001")
         val body = RequestBodyBuilder.build(record(), "location", device, params)
         assertEquals(42, body.getInt("company_id"))
-        assertEquals("nikhil", body.getString("driver"))
+        assertEquals("driver-001", body.getString("driver"))
         assertTrue(body.has("location"))
     }
 
