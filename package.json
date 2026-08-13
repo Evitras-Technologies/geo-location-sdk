@@ -1,6 +1,6 @@
 {
   "name": "@evitras-technologies/react-native-background-geolocation",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Free, open-source background geolocation SDK for React Native CLI and Expo. Battery-conscious motion-detection tracking, geofencing, SQLite persistence, HTTP sync, headless tasks.",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
