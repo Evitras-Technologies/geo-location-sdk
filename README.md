@@ -7,10 +7,6 @@ machine, geofencing, SQLite persistence, automatic HTTP sync, headless Android
 tasks and OEM-survival hardening. No license keys, no premium tier — every
 feature works in debug *and* release builds on both platforms.
 
-> An independent, clean-room implementation. Not affiliated with Transistor
-> Software; it intentionally mirrors the popular plugin's API shape so existing
-> knowledge transfers directly.
-
 ## Project status — read before adopting
 
 This is an early release (`0.1.0`). Being straight about what is proven and
