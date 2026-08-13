@@ -1,4 +1,4 @@
-# react-native-open-background-geolocation
+# @evitras-technologies/react-native-background-geolocation
 
 **Free, open-source (MIT) background geolocation for React Native CLI and Expo.**
 
@@ -92,12 +92,12 @@ exemption; those concepts don't exist on the platform.
 ## Quick start
 
 ```bash
-npm install react-native-open-background-geolocation
+npm install @evitras-technologies/react-native-background-geolocation
 cd ios && pod install   # React Native CLI only
 ```
 
 ```ts
-import BackgroundGeolocation from 'react-native-open-background-geolocation';
+import BackgroundGeolocation from '@evitras-technologies/react-native-background-geolocation';
 
 // 1. Register listeners BEFORE ready() so nothing is missed.
 BackgroundGeolocation.onLocation((location) => {

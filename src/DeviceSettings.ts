@@ -8,7 +8,7 @@ import { NativeModule } from './NativeModule';
  * OEM "auto-start" managers, …). Android only; no-ops on iOS.
  *
  * ```ts
- * import { DeviceSettings } from 'react-native-open-background-geolocation';
+ * import { DeviceSettings } from '@evitras-technologies/react-native-background-geolocation';
  *
  * await DeviceSettings.showIgnoreBatteryOptimizations();
  * ```

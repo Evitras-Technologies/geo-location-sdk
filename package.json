@@ -1,5 +1,5 @@
 {
-  "name": "react-native-open-background-geolocation",
+  "name": "@evitras-technologies/react-native-background-geolocation",
   "version": "0.1.0",
   "description": "Free, open-source background geolocation SDK for React Native CLI and Expo. Battery-conscious motion-detection tracking, geofencing, SQLite persistence, HTTP sync, headless tasks. API-compatible with the popular transistorsoft plugin surface.",
   "main": "lib/commonjs/index.js",
@@ -24,7 +24,7 @@
   "scripts": {
     "test": "jest",
     "prepare": "bob build",
-    "test:android": "cd example-app/android && gradlew :react-native-open-background-geolocation:testReleaseUnitTest",
+    "test:android": "cd example-app/android && gradlew :evitras-technologies_react-native-background-geolocation:testReleaseUnitTest",
     "typecheck": "tsc --noEmit",
     "build": "bob build",
     "prepublishOnly": "bob build",
@@ -52,6 +52,9 @@
   },
   "homepage": "https://github.com/Evitras-Technologies/geo-location-sdk#readme",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "react": "*",
     "react-native": "*"

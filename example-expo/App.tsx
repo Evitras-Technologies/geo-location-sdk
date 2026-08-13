@@ -1,5 +1,5 @@
 /**
- * react-native-open-background-geolocation — full-featured demo.
+ * @evitras-technologies/react-native-background-geolocation — full-featured demo.
  *
  * Demonstrates:
  *  - ready() configuration with battery-conscious defaults
@@ -25,7 +25,7 @@ import BackgroundGeolocation, {
   DeviceSettings,
   Location,
   Subscription,
-} from 'react-native-open-background-geolocation';
+} from '@evitras-technologies/react-native-background-geolocation';
 
 interface FeedEntry {
   id: string;

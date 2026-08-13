@@ -4,7 +4,7 @@ import BackgroundGeolocationFacade from './BackgroundGeolocation';
  * The singleton SDK instance — import as default:
  *
  * ```ts
- * import BackgroundGeolocation from 'react-native-open-background-geolocation';
+ * import BackgroundGeolocation from '@evitras-technologies/react-native-background-geolocation';
  * ```
  */
 const BackgroundGeolocation = new BackgroundGeolocationFacade();

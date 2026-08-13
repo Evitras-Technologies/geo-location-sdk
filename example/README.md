@@ -1,6 +1,6 @@
 # React Native CLI example
 
-A full-featured demo of `react-native-open-background-geolocation`: live event
+A full-featured demo of `@evitras-technologies/react-native-background-geolocation`: live event
 feed, start/stop tracking, `changePace`, `getCurrentPosition`, geofences,
 odometer and the SQLite database.
 
@@ -18,7 +18,7 @@ Copy `App.tsx`, `index.js` and `app.json` from this folder over the generated
 ones, then install the SDK:
 
 ```bash
-npm install ../..   # or: npm install react-native-open-background-geolocation
+npm install ../..   # or: npm install @evitras-technologies/react-native-background-geolocation
 ```
 
 ## 2. Android setup

@@ -152,7 +152,7 @@ Metro cannot resolve symlinks outside the project root:
 
 ```bash
 npm pack        # in the SDK folder
-npm install ../path/to/react-native-open-background-geolocation-1.0.0.tgz
+npm install ../path/to/@evitras-technologies/react-native-background-geolocation-1.0.0.tgz
 ```
 
 ---
@@ -174,7 +174,7 @@ Data Safety form, and privacy policy URL.
 ## Getting diagnostic data
 
 ```ts
-import { Logger } from 'react-native-open-background-geolocation';
+import { Logger } from '@evitras-technologies/react-native-background-geolocation';
 
 await BackgroundGeolocation.setConfig({
   logLevel: BackgroundGeolocation.LOG_LEVEL_VERBOSE,

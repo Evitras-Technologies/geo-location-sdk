@@ -1,5 +1,5 @@
 /**
- * Expo config plugin for react-native-open-background-geolocation.
+ * Expo config plugin for @evitras-technologies/react-native-background-geolocation.
  *
  * Adds the native permissions and background capabilities the SDK needs, so
  * Expo users never touch Info.plist or AndroidManifest.xml by hand:
@@ -9,7 +9,7 @@
  *   "expo": {
  *     "plugins": [
  *       [
- *         "react-native-open-background-geolocation",
+ *         "@evitras-technologies/react-native-background-geolocation",
  *         {
  *           "locationAlwaysAndWhenInUsePermission": "This app tracks your route in the background.",
  *           "motionPermission": "Motion detection reduces battery usage while stationary."

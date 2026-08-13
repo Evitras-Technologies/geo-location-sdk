@@ -1,5 +1,5 @@
 import { registerRootComponent } from 'expo';
-import BackgroundGeolocation from 'react-native-open-background-geolocation';
+import BackgroundGeolocation from '@evitras-technologies/react-native-background-geolocation';
 
 import App from './App';
 

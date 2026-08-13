@@ -6,7 +6,7 @@ import { NativeModule } from './NativeModule';
  * field debugging.
  *
  * ```ts
- * import BackgroundGeolocation, { Logger } from 'react-native-open-background-geolocation';
+ * import BackgroundGeolocation, { Logger } from '@evitras-technologies/react-native-background-geolocation';
  *
  * Logger.info('Something interesting happened');
  * const log = await Logger.getLog();

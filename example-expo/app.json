@@ -17,7 +17,7 @@
     },
     "plugins": [
       [
-        "react-native-open-background-geolocation",
+        "@evitras-technologies/react-native-background-geolocation",
         {
           "locationAlwaysAndWhenInUsePermission": "This demo tracks your route in the background.",
           "locationWhenInUsePermission": "This demo shows your position on screen.",

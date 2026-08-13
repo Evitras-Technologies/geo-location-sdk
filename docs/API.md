@@ -4,7 +4,7 @@
 import BackgroundGeolocation, {
   Logger,
   DeviceSettings,
-} from 'react-native-open-background-geolocation';
+} from '@evitras-technologies/react-native-background-geolocation';
 ```
 
 `BackgroundGeolocation` is a singleton. Every method returns a Promise unless
@@ -244,7 +244,7 @@ stays `true` permanently. For physical motion, use `activity.type` and
 Persistent log stored in the SDK database, pruned after `logMaxDays`.
 
 ```ts
-import { Logger } from 'react-native-open-background-geolocation';
+import { Logger } from '@evitras-technologies/react-native-background-geolocation';
 
 Logger.info('Trip started');
 const text = await Logger.getLog();
@@ -262,7 +262,7 @@ Android helpers for the vendor settings that decide whether background
 tracking survives. No-ops on iOS.
 
 ```ts
-import { DeviceSettings } from 'react-native-open-background-geolocation';
+import { DeviceSettings } from '@evitras-technologies/react-native-background-geolocation';
 
 await DeviceSettings.isIgnoringBatteryOptimizations();  // boolean
 await DeviceSettings.showIgnoreBatteryOptimizations();  // system "Allow?" dialog

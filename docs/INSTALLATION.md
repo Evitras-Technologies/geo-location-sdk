@@ -11,7 +11,7 @@
 ## React Native CLI
 
 ```bash
-npm install react-native-open-background-geolocation
+npm install @evitras-technologies/react-native-background-geolocation
 ```
 
 Autolinking picks up the native modules. Then:
@@ -56,7 +56,7 @@ file **outside** any component:
 
 ```js
 // index.js
-import BackgroundGeolocation from 'react-native-open-background-geolocation';
+import BackgroundGeolocation from '@evitras-technologies/react-native-background-geolocation';
 
 BackgroundGeolocation.registerHeadlessTask(async (event) => {
   console.log('[headless]', event.name, event.params);
@@ -73,7 +73,7 @@ Requires `stopOnTerminate: false` and `enableHeadless: true` in your config.
 > development build.
 
 ```bash
-npx expo install react-native-open-background-geolocation
+npx expo install @evitras-technologies/react-native-background-geolocation
 ```
 
 Add the config plugin to `app.json`:
@@ -83,7 +83,7 @@ Add the config plugin to `app.json`:
   "expo": {
     "plugins": [
       [
-        "react-native-open-background-geolocation",
+        "@evitras-technologies/react-native-background-geolocation",
         {
           "locationAlwaysAndWhenInUsePermission": "This app tracks your route in the background to …",
           "locationWhenInUsePermission": "This app shows your position while you use it.",

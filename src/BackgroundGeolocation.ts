@@ -56,7 +56,7 @@ function subscribe(eventName: string, handler: (event: never) => void): Subscrip
  * back down.
  *
  * ```ts
- * import BackgroundGeolocation from 'react-native-open-background-geolocation';
+ * import BackgroundGeolocation from '@evitras-technologies/react-native-background-geolocation';
  *
  * const onLocation = BackgroundGeolocation.onLocation((location) => {
  *   console.log('[location]', location);
