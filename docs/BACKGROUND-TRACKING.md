@@ -19,11 +19,20 @@ what the SDK does about it.
 persistent notification. Android will not let an app track in the background
 without one.
 
-**WakeLock.** A partial WakeLock is held while tracking. A foreground service
-keeps your *process* alive but does **not** keep the *CPU* awake — without a
-WakeLock the processor sleeps when the screen turns off, timers stop firing and
-uploads stall mid-flight. This is the single most common cause of "works in
-foreground, silent in background".
+**WakeLock, only when it earns its cost.** A foreground service keeps your
+*process* alive but does **not** keep the *CPU* awake — without a WakeLock the
+processor sleeps when the screen turns off, timers stop firing and uploads
+stall mid-flight. But a lock held for the whole session keeps a *parked* device
+awake for hours, which is the largest battery and heat cost a tracker can
+have. So the partial WakeLock is held in bounded spans only:
+
+- **while moving**, renewed by every fix and lapsing 10 minutes after the last
+  one — the GPS is on anyway, and handler timers such as the stop timeout keep
+  real time;
+- **for 15 seconds around each event delivered to JS**, so your listener can
+  finish its work (typically an upload) before the CPU sleeps;
+- **not at all while stationary** — the stationary alarm, the
+  significant-motion sensor and activity recognition wake the device themselves.
 
 **Doze-proof timers.** Stationary updates run on `AlarmManager` with
 `setAndAllowWhileIdle`, not `Handler.postDelayed` — handler timers are
@@ -31,7 +40,7 @@ suspended entirely once the device enters Doze, which is precisely when you
 need them. (Deliberately *inexact* alarms: exact alarms require
 `SCHEDULE_EXACT_ALARM`, which Play restricts to clock and calendar apps.)
 
-**Four independent movement signals**, so no single failure strands tracking in
+**Five independent movement signals**, so no single failure strands tracking in
 the stationary state:
 
 1. Hardware significant-motion sensor — needs no permission, cannot be
@@ -39,6 +48,16 @@ the stationary state:
 2. Activity Transition API — fires the instant you start walking or driving
 3. Passive location watch — piggybacks on fixes other apps request
 4. Stationary geofence exit
+5. The stationary update itself (when `stationaryUpdateInterval` is set) — each
+   fix is compared with the parked position, so a departure every other signal
+   missed is still caught within one interval
+
+**Two independent stop signals**, so no single failure strands tracking in the
+*moving* state with the GPS at full power:
+
+1. The `still` activity, followed by `stopTimeout` minutes
+2. No real displacement for `stopTimeout` minutes — needs no permission, so it
+   still works when the user declined physical-activity access
 
 **OEM-kill watchdog.** An alarm every 15 minutes restarts the tracking service
 if a vendor battery manager killed it.

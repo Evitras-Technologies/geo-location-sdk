@@ -108,4 +108,66 @@ class RequestBodyBuilderTest {
         assertEquals("refresh-xyz", payload.getString("token"))
         assertEquals("refresh_token", payload.getString("grant_type")) // literal preserved
     }
+
+    // ── A record in the host's own shape (locationTemplate) ───────────────────
+
+    private val presenceTemplate = """{"lat":<%= latitude %>,"lng":<%= longitude %>}"""
+
+    @Test
+    fun `a template with params is the whole body`() {
+        val params = JSONObject().put("online", true).put("vehicleId", "65")
+        val body = RequestBodyBuilder.buildFromTemplate(record(), presenceTemplate, ".", params)
+
+        assertEquals(12.9716, body.getDouble("lat"), 0.0)
+        assertEquals(77.5946, body.getDouble("lng"), 0.0)
+        assertTrue(body.getBoolean("online"))
+        assertEquals("65", body.getString("vehicleId"))
+        // Nothing the host did not ask for: a strict server refuses the rest.
+        assertEquals(4, body.length())
+        assertFalse(body.has("device_id"))
+        assertFalse(body.has("coords"))
+    }
+
+    @Test
+    fun `a templated record can sit under a root property`() {
+        val body = RequestBodyBuilder.buildFromTemplate(record(), presenceTemplate, "position", JSONObject())
+        assertEquals(12.9716, body.getJSONObject("position").getDouble("lat"), 0.0)
+        assertEquals(1, body.length())
+    }
+
+    @Test
+    fun `every record of a batch is shaped`() {
+        val batch = JSONArray().put(record(1.0)).put(record(2.0))
+        val body = RequestBodyBuilder.buildFromTemplate(batch, presenceTemplate, "positions", JSONObject())
+        val positions = body.getJSONArray("positions")
+        assertEquals(2, positions.length())
+        assertEquals(2.0, positions.getJSONObject(1).getDouble("lat"), 0.0)
+        assertFalse(positions.getJSONObject(0).has("uuid"))
+    }
+
+    @Test
+    fun `text is escaped and left for the template to quote`() {
+        val odd = record().put("event", "say \"moving\"")
+        val shaped = RequestBodyBuilder.render("""{"at":"<%= timestamp %>","why":"<%= event %>"}""", odd)!!
+        assertEquals("2026-08-01T10:00:00.000Z", shaped.getString("at"))
+        assertEquals("say \"moving\"", shaped.getString("why"))
+    }
+
+    @Test
+    fun `a dotted tag follows a path and a missing value is null`() {
+        val charged = record().put("battery", JSONObject().put("level", 0.5))
+        val shaped = RequestBodyBuilder.render(
+            """{"level":<%= battery.level %>,"speed":<%= speed %>,"gone":<%= no.such %>}""",
+            charged
+        )!!
+        assertEquals(0.5, shaped.getDouble("level"), 0.0)
+        assertTrue(shaped.isNull("speed"))
+        assertTrue(shaped.isNull("gone"))
+    }
+
+    @Test
+    fun `a template that is not a JSON object leaves the record as it was`() {
+        val body = RequestBodyBuilder.buildFromTemplate(record(), "lat=<%= latitude %>", "location", JSONObject())
+        assertEquals("rec-1", body.getJSONObject("location").getString("uuid"))
+    }
 }

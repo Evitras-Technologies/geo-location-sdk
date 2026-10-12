@@ -144,7 +144,7 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
      * of the outcome so tracking still engages if the user declines.
      */
     private fun ensureLocationServicesEnabled(onComplete: () -> Unit) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (activity == null) {
             onComplete()
             return
@@ -486,7 +486,7 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
     }
 
     private fun launchPermissionRequest(onResult: (Int) -> Unit) {
-        val activity = currentActivity as? PermissionAwareActivity
+        val activity = reactContext.currentActivity as? PermissionAwareActivity
         if (activity == null) {
             onResult(currentAuthorizationStatus())
             return
@@ -509,7 +509,7 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
-        permissions: Array<out String>,
+        permissions: Array<String>,
         grantResults: IntArray
     ): Boolean {
         if (requestCode != PERMISSION_REQUEST_CODE && requestCode != BACKGROUND_REQUEST_CODE) {
@@ -523,7 +523,13 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
 
         if (requestCode == PERMISSION_REQUEST_CODE) {
             val wantsAlways = engine.config.locationAuthorizationRequest == "Always"
-            if (fineGranted && wantsAlways &&
+            // Already "Allow all the time": the disclosure and the Settings
+            // trip would be asked again on every call for nothing.
+            val backgroundGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(
+                    reactContext, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            if (fineGranted && wantsAlways && !backgroundGranted &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 !awaitingBackgroundPermission
             ) {
@@ -545,7 +551,7 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
      * request (foreground-only tracking still works).
      */
     private fun showBackgroundDisclosureThenRequest() {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         val permissionActivity = activity as? PermissionAwareActivity
         if (activity == null || permissionActivity == null) {
             finishPermissionFlow()
@@ -595,7 +601,7 @@ class BackgroundGeolocationModule(private val reactContext: ReactApplicationCont
      * app's Settings page, so the user is *always* prompted one way or another.
      */
     private fun maybeShowSettingsRedirect() {
-        val activity = currentActivity ?: return
+        val activity = reactContext.currentActivity ?: return
         val systemDialogStillAvailable = ActivityCompat.shouldShowRequestPermissionRationale(
             activity, Manifest.permission.ACCESS_FINE_LOCATION
         )

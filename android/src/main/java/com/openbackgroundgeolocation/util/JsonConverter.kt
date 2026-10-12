@@ -76,8 +76,9 @@ object JsonConverter {
                 ReadableType.Boolean -> json.put(array.getBoolean(index))
                 ReadableType.Number -> json.put(array.getDouble(index))
                 ReadableType.String -> json.put(array.getString(index))
-                ReadableType.Map -> json.put(readableMapToJson(array.getMap(index)))
-                ReadableType.Array -> json.put(readableArrayToJson(array.getArray(index)))
+                // Nullable from RN 0.80 on; the type check above guarantees a value.
+                ReadableType.Map -> json.put(readableMapToJson(array.getMap(index)!!))
+                ReadableType.Array -> json.put(readableArrayToJson(array.getArray(index)!!))
             }
         }
         return json

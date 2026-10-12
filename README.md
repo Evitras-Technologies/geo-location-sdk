@@ -77,7 +77,7 @@ tracking without draining the battery:
 | Resume after reboot | ✅ | ✅ |
 | Headless JS events after terminate | ✅ | — |
 | OEM-kill watchdog + service resurrection | ✅ | n/a |
-| WakeLock (CPU alive with screen off) | ✅ | n/a |
+| WakeLock while moving (released when parked) | ✅ | n/a |
 | Doze-proof stationary updates | ✅ AlarmManager | ✅ |
 | SDK-managed permission onboarding | ✅ | ✅ partial¹ |
 | Expo config plugin | ✅ | ✅ |

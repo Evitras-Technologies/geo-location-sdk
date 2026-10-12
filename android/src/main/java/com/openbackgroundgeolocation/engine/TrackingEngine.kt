@@ -24,6 +24,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -43,6 +44,7 @@ import com.openbackgroundgeolocation.motion.ActivityRecognitionManager
 import com.openbackgroundgeolocation.receiver.StationaryAlarmReceiver
 import com.openbackgroundgeolocation.receiver.WatchdogReceiver
 import com.openbackgroundgeolocation.service.LocationTrackingService
+import com.openbackgroundgeolocation.util.WakeLocks
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -98,6 +100,29 @@ class TrackingEngine private constructor(private val context: Context) {
 
     private val stopTimeoutRunnable = Runnable { setMoving(false) }
     private val motionTriggerRunnable = Runnable { setMoving(true) }
+
+    /**
+     * Stop detection that needs no activity recognition.
+     *
+     * The `still` activity was the only thing that ever armed the stop
+     * timeout. With the physical-activity permission denied, or the signal
+     * throttled by the OEM, the SDK stayed *moving* for good — GPS at full
+     * power through every halt, all night. This timer is re-armed by real
+     * displacement (see [noteMovement]) and so fires `stopTimeout` minutes
+     * after the device last actually went anywhere.
+     */
+    private val noMovementRunnable = Runnable { if (config.isMoving) setMoving(false) }
+
+    /** Where the device was when it last showed real displacement while moving. */
+    private var movementAnchor: Location? = null
+
+    /**
+     * Whether the motion state has been applied in this process. Lets a
+     * repeated service start (watchdog tick, `ready()` on app launch) be a
+     * no-op instead of re-running the transition — which, while stationary,
+     * cost a GPS fix and a `motionchange` event every time.
+     */
+    private var stateEngaged = false
     private val stopAfterElapsedRunnable = Runnable { stop() }
     /**
      * Record one fresh fix while stationary — persisted, uploaded and emitted
@@ -120,6 +145,12 @@ class TrackingEngine private constructor(private val context: Context) {
                     persistRecord(record, isGeofenceEvent = false)
                     EventDispatcher.emit(context, EventDispatcher.EVENT_LOCATION, record)
                     autoSyncIfDue()
+                    // The fix just taken doubles as a movement check. If every
+                    // other wake signal missed a departure (throttled activity
+                    // recognition, no motion sensor, a slow geofence), tracking
+                    // still resumes within one interval instead of never.
+                    if (stationaryAnchor == null) stationaryAnchor = location
+                    if (hasDriftedFromAnchor(location)) setMoving(true)
                 }
             }.onFailure { error -> logError("Stationary update failed", error) }
             onFinished()
@@ -197,17 +228,24 @@ class TrackingEngine private constructor(private val context: Context) {
         // signal movement manually.
         val shouldEngageImmediately =
             config.disableStopDetection || config.isMovingOnStart || config.isMoving
-        // `isInitial` only when tracking isn't already engaged — makes repeated
-        // onStartCommand deliveries (watchdog restarts, service resurrection)
-        // idempotent instead of re-emitting motionchange.
-        setMoving(shouldEngageImmediately, isInitial = !trackingCallbackActive)
+        // `isInitial` only when the state has not been applied yet in this
+        // process — makes repeated onStartCommand deliveries (watchdog
+        // restarts, service resurrection) idempotent instead of re-emitting
+        // motionchange. Keyed on [stateEngaged], not on the location callback:
+        // that callback is off whenever the device is stationary, which made
+        // every restart look like a first start.
+        if (stateEngaged) return
+        setMoving(shouldEngageImmediately, isInitial = true)
     }
 
     @Synchronized
     fun stop() {
         config.enabled = false
         config.isMoving = false
+        stateEngaged = false
+        movementAnchor = null
         mainHandler.removeCallbacks(stopTimeoutRunnable)
+        mainHandler.removeCallbacks(noMovementRunnable)
         mainHandler.removeCallbacks(motionTriggerRunnable)
         mainHandler.removeCallbacks(stopAfterElapsedRunnable)
         mainHandler.removeCallbacks(heartbeatRunnable)
@@ -219,6 +257,7 @@ class TrackingEngine private constructor(private val context: Context) {
         activityRecognition.stop()
         geofenceManager.stopMonitoring()
         LocationTrackingService.stop(context)
+        WakeLocks.release()
         EventDispatcher.emit(context, EventDispatcher.EVENT_ENABLEDCHANGE, false)
         debugBeep(ToneGenerator.TONE_PROP_NACK)
     }
@@ -255,10 +294,23 @@ class TrackingEngine private constructor(private val context: Context) {
         if (config.disableStopDetection && !moving) return
         if (!isInitial && config.isMoving == moving) return
         config.isMoving = moving
+        stateEngaged = true
+        // The parked position belongs to the stop that is ending, or to the
+        // one before the drive that is ending. Left in place, the drift
+        // watches started below would measure the new stop against the *last*
+        // one — kilometres away — and declare the device moving again at
+        // once, leaving the GPS on. The transition fix sets the new one.
+        stationaryAnchor = null
         mainHandler.removeCallbacks(stopTimeoutRunnable)
+        mainHandler.removeCallbacks(noMovementRunnable)
         mainHandler.removeCallbacks(motionTriggerRunnable)
 
         if (moving) {
+            // Handler timers (the stop timeouts above all) only advance while
+            // the CPU is awake; hold it for as long as fixes keep coming.
+            WakeLocks.holdFor(context, movingHoldMillis())
+            movementAnchor = null
+            armNoMovementTimer()
             mainHandler.removeCallbacks(heartbeatRunnable)
             StationaryAlarmReceiver.cancel(context)
             geofenceManager.removeStationaryGeofence()
@@ -273,6 +325,10 @@ class TrackingEngine private constructor(private val context: Context) {
             startContinuousUpdates()
         } else {
             stopContinuousUpdates()
+            // Parked: let the CPU sleep. Only the transition fix below needs
+            // it awake; alarms, sensors and activity recognition wake it later.
+            WakeLocks.release()
+            WakeLocks.holdFor(context, TRANSITION_FIX_TIMEOUT_MILLIS + WakeLocks.EVENT_MILLIS)
             // Redundant wake signals — activity recognition alone is throttled
             // on many OEMs (the classic "stuck in stationary" failure).
             armSignificantMotionSensor()
@@ -284,9 +340,11 @@ class TrackingEngine private constructor(private val context: Context) {
         }
 
         // Record the transition with a fresh one-shot fix.
-        fetchSingleFix(timeoutMillis = 30_000) { location ->
+        fetchSingleFix(timeoutMillis = TRANSITION_FIX_TIMEOUT_MILLIS) { location ->
             if (location != null) {
-                if (!moving) {
+                // Only while still stationary: the state may have changed
+                // again in the seconds this fix took to arrive.
+                if (!moving && !config.isMoving) {
                     stationaryAnchor = location
                     geofenceManager.registerStationaryGeofence(
                         location.latitude,
@@ -302,7 +360,9 @@ class TrackingEngine private constructor(private val context: Context) {
                     JSONObject().put("isMoving", moving).put("location", record)
                 )
                 EventDispatcher.emit(context, EventDispatcher.EVENT_LOCATION, record)
-                autoSyncIfDue()
+                // Where it set off from, or where it stopped: not held back
+                // by `autoSyncInterval`.
+                autoSyncIfDue(urgent = true)
             }
         }
         debugBeep(if (moving) ToneGenerator.TONE_CDMA_HIGH_L else ToneGenerator.TONE_CDMA_LOW_L)
@@ -354,9 +414,7 @@ class TrackingEngine private constructor(private val context: Context) {
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val fix = result.lastLocation ?: return
-                val anchor = stationaryAnchor ?: return
-                val driftThreshold = config.stationaryRadius.coerceAtLeast(fix.accuracy)
-                if (config.enabled && !config.isMoving && fix.distanceTo(anchor) > driftThreshold) {
+                if (config.enabled && !config.isMoving && hasDriftedFromAnchor(fix)) {
                     setMoving(true)
                 }
             }
@@ -364,6 +422,17 @@ class TrackingEngine private constructor(private val context: Context) {
         val request = LocationRequest.Builder(Priority.PRIORITY_PASSIVE, 30_000L).build()
         fusedClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
         passiveDriftCallback = callback
+    }
+
+    /**
+     * Whether [fix] lies outside the stationary zone around the parked
+     * position, allowing for the fix's own uncertainty so GPS wander on a
+     * parked device never counts as departure.
+     */
+    private fun hasDriftedFromAnchor(fix: Location): Boolean {
+        val anchor = stationaryAnchor ?: return false
+        val driftThreshold = config.stationaryRadius.coerceAtLeast(fix.accuracy)
+        return fix.distanceTo(anchor) > driftThreshold
     }
 
     private fun stopPassiveDriftWatch() {
@@ -411,12 +480,54 @@ class TrackingEngine private constructor(private val context: Context) {
 
     private val trackingCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            // Each fix while moving renews the hold, so it lapses by itself if
+            // fixes stop — never a lock left running on a parked device.
+            WakeLocks.holdFor(context, movingHoldMillis())
             // An exception here would propagate into Play Services' callback
             // and crash the host app — never let that happen.
-            runCatching { result.lastLocation?.let { onRawLocation(it) } }
-                .onFailure { error -> logError("Failed to process location", error) }
+            runCatching {
+                result.lastLocation?.let {
+                    noteMovement(it)
+                    onRawLocation(it)
+                }
+            }.onFailure { error -> logError("Failed to process location", error) }
         }
     }
+
+    /**
+     * Push the no-movement stop back when [fix] shows real displacement.
+     *
+     * Judged against where the device was at the last displacement, not the
+     * previous fix, and allowing for the fix's own uncertainty — so GPS wander
+     * on a parked device (or a `distanceFilter` of 0, where fixes never stop
+     * coming) cannot keep tracking in the moving state.
+     */
+    private fun noteMovement(fix: Location) {
+        val anchor = movementAnchor
+        val threshold = config.stationaryRadius.coerceAtLeast(fix.accuracy)
+        if (anchor == null || fix.distanceTo(anchor) > threshold) {
+            movementAnchor = fix
+            armNoMovementTimer()
+        }
+    }
+
+    private fun armNoMovementTimer() {
+        mainHandler.removeCallbacks(noMovementRunnable)
+        if (config.disableStopDetection) return
+        mainHandler.postDelayed(
+            noMovementRunnable,
+            TimeUnit.MINUTES.toMillis(config.stopTimeoutMinutes.toLong())
+        )
+    }
+
+    /**
+     * How long one fix keeps the CPU awake while moving: always past the stop
+     * timeout, so the timer that ends the moving state can fire on time.
+     */
+    private fun movingHoldMillis(): Long = maxOf(
+        WakeLocks.MOVING_MILLIS,
+        TimeUnit.MINUTES.toMillis(config.stopTimeoutMinutes.toLong()) + 2 * 60_000L
+    )
 
     /** Record an internal failure to the SDK log without disturbing the app. */
     fun logError(message: String, error: Throwable? = null) {
@@ -758,7 +869,7 @@ class TrackingEngine private constructor(private val context: Context) {
 
         return JSONObject().apply {
             put("timestamp", isoTimestamp(location.time))
-            put("age", System.currentTimeMillis() - location.time)
+            put("age", ageMillis(location))
             event?.let { put("event", it) }
             put("is_moving", config.isMoving)
             put("uuid", UUID.randomUUID().toString())
@@ -772,6 +883,21 @@ class TrackingEngine private constructor(private val context: Context) {
             put("mock", isMock)
             if (mergedExtras.length() > 0) put("extras", mergedExtras)
         }
+    }
+
+    /**
+     * How old [location] is, on the monotonic clock.
+     *
+     * A GPS fix carries satellite time while `System.currentTimeMillis()` is
+     * whatever the device's clock says; subtracting the two reported every fix
+     * as minutes old (or negative) on a phone whose clock is set wrong, and a
+     * consumer filtering on age then dropped them all. The elapsed-realtime
+     * stamps come from one clock on every provider.
+     */
+    private fun ageMillis(location: Location): Long {
+        val fixNanos = location.elapsedRealtimeNanos
+        if (fixNanos <= 0L) return (System.currentTimeMillis() - location.time).coerceAtLeast(0L)
+        return ((SystemClock.elapsedRealtimeNanos() - fixNanos) / 1_000_000L).coerceAtLeast(0L)
     }
 
     fun persistRecord(record: JSONObject, isGeofenceEvent: Boolean) {
@@ -788,11 +914,27 @@ class TrackingEngine private constructor(private val context: Context) {
             else -> true
         }
         if (!shouldPersist) return
+
+        // `minimumAccuracy` holds for what is uploaded, however the fix was
+        // taken. The filter on continuous fixes does not see the one-off fix
+        // of a motion change or of a stationary check, and that one is often
+        // the poorest of a trip: the first after the GPS has been off.
+        val worst = config.minimumAccuracy
+        val accuracy = record.optJSONObject("coords")?.optDouble("accuracy", 0.0) ?: 0.0
+        if (!isGeofenceEvent && worst > 0 && accuracy > worst) return
+
         database.insertLocation(
             record.optString("uuid", UUID.randomUUID().toString()),
             System.currentTimeMillis(),
             record
         )
+        // A cap on records is kept to on every write. A host that keeps only
+        // the newest position (a cap of 1, for a server that dates a position
+        // by when it arrives) must never be left with an older one to upload,
+        // and the periodic pass below let a queue build up for minutes.
+        val cap = config.maxRecordsToPersist
+        if (cap > 0) database.pruneLocations(0, cap)
+
         // Pruning is a DELETE with a subquery; running it on every insert was
         // pure overhead. Retention is a coarse policy — periodic is enough.
         val now = System.currentTimeMillis()
@@ -802,8 +944,8 @@ class TrackingEngine private constructor(private val context: Context) {
         }
     }
 
-    private fun autoSyncIfDue() {
-        if (uploader.shouldAutoSync()) uploader.flush()
+    private fun autoSyncIfDue(urgent: Boolean = false) {
+        if (uploader.shouldAutoSync(urgent)) uploader.flush()
     }
 
     // ── Provider / connectivity / power monitoring ────────────────────────────
@@ -1054,6 +1196,8 @@ class TrackingEngine private constructor(private val context: Context) {
 
         private const val BATTERY_CACHE_MILLIS = 30_000L
         private const val PRUNE_INTERVAL_MILLIS = 5 * 60_000L
+        /** How long a motion-change fix may take before it is given up on. */
+        private const val TRANSITION_FIX_TIMEOUT_MILLIS = 30_000L
 
         const val ERROR_PERMISSION_DENIED = 1
         const val ERROR_POSITION_UNAVAILABLE = 2

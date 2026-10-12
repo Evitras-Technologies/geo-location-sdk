@@ -156,6 +156,17 @@ class ConfigStore private constructor(context: Context) {
     val headers: JSONObject get() = configJson.optJSONObject("headers") ?: JSONObject()
 
     /**
+     * The shape of one uploaded record: a JSON object with `<%= name %>` tags,
+     * each replaced by that value of the record (`latitude`, `longitude`,
+     * `accuracy`, `speed`, `heading`, `altitude`, `timestamp`, `uuid`,
+     * `event`, `is_moving`, `odometer`, or a dotted path such as
+     * `battery.level`). Text is not quoted for you: write
+     * `"at":"<%= timestamp %>"`. With a template the request body is that
+     * object and `params`, and nothing else is added to it.
+     */
+    val locationTemplate: String get() = configJson.optString("locationTemplate", "")
+
+    /**
      * JWT (or bearer) authorization with automatic refresh:
      * `{ strategy, accessToken, refreshToken, refreshUrl, refreshPayload,
      *    refreshHeaders, expires }`. When the server answers 401 the SDK posts
@@ -177,6 +188,15 @@ class ConfigStore private constructor(context: Context) {
     val extras: JSONObject get() = configJson.optJSONObject("extras") ?: JSONObject()
     val autoSync: Boolean get() = configJson.optBoolean("autoSync", true)
     val autoSyncThreshold: Int get() = configJson.optInt("autoSyncThreshold", 0)
+
+    /**
+     * Least time between two automatic uploads, in milliseconds; `0` (default)
+     * uploads every record as it is written. For a server that wants a
+     * position no more often than this while fixes are taken more often: the
+     * upload that goes then carries the newest fix, not one as old as the
+     * interval. A change of motion is uploaded regardless.
+     */
+    val autoSyncInterval: Long get() = configJson.optLong("autoSyncInterval", 0L)
     val batchSync: Boolean get() = configJson.optBoolean("batchSync", false)
     val maxBatchSize: Int get() = configJson.optInt("maxBatchSize", -1)
     val maxDaysToPersist: Int get() = configJson.optInt("maxDaysToPersist", 14)

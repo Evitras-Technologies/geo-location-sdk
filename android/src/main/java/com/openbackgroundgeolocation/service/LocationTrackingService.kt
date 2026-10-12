@@ -13,11 +13,11 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.openbackgroundgeolocation.config.ConfigStore
 import com.openbackgroundgeolocation.engine.TrackingEngine
+import com.openbackgroundgeolocation.util.WakeLocks
 
 /**
  * Foreground service which keeps the process alive while tracking. All actual
@@ -26,14 +26,8 @@ import com.openbackgroundgeolocation.engine.TrackingEngine
  */
 class LocationTrackingService : Service() {
 
-    /**
-     * Keeps the CPU running while tracking. Without this the processor sleeps
-     * as soon as the screen turns off: location callbacks are delayed, timers
-     * stop firing and HTTP uploads stall — the classic "works in foreground,
-     * silent in background" failure. A foreground service alone does *not*
-     * guarantee CPU wakefulness.
-     */
-    private var wakeLock: PowerManager.WakeLock? = null
+    // CPU wakefulness is no longer held here for the service's whole life:
+    // see WakeLocks for the bounded holds that replaced it.
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,34 +53,12 @@ class LocationTrackingService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        acquireWakeLock()
         TrackingEngine.get(this).onTrackingServiceReady()
         return START_STICKY
     }
 
-    private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
-        runCatching {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "OpenBackgroundGeolocation::TrackingWakeLock"
-            ).apply {
-                setReferenceCounted(false)
-                // Time-boxed as a safety net: if the service is ever killed
-                // without onDestroy running, the lock cannot leak forever.
-                acquire(WAKE_LOCK_TIMEOUT_MILLIS)
-            }
-        }
-    }
-
-    private fun releaseWakeLock() {
-        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
-        wakeLock = null
-    }
-
     override fun onDestroy() {
-        releaseWakeLock()
+        WakeLocks.release()
         super.onDestroy()
     }
 
@@ -211,8 +183,6 @@ class LocationTrackingService : Service() {
         /** Base id; the effective channel is "<base>_<importance>". */
         private const val DEFAULT_CHANNEL_ID = "open_bg_geo_silent"
         private val LEGACY_CHANNEL_IDS = listOf("open_bg_geo", "open_bg_geo_silent")
-        /** Re-acquired by the watchdog every 15 minutes, so 24h is ample slack. */
-        private const val WAKE_LOCK_TIMEOUT_MILLIS = 24 * 60 * 60 * 1000L
 
         fun start(context: Context) {
             val intent = Intent(context, LocationTrackingService::class.java)

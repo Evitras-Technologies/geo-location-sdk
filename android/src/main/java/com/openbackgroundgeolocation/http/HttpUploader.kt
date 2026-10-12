@@ -1,6 +1,7 @@
 package com.openbackgroundgeolocation.http
 
 import android.content.Context
+import android.os.SystemClock
 import com.openbackgroundgeolocation.config.ConfigStore
 import com.openbackgroundgeolocation.data.DatabaseHelper
 import com.openbackgroundgeolocation.data.LocationRow
@@ -85,11 +86,33 @@ class HttpUploader(private val context: Context) {
         }
     }
 
-    /** `true` when enough records have accumulated to justify an auto-sync. */
-    fun shouldAutoSync(): Boolean {
+    /** `elapsedRealtime` of the last automatic upload; 0 before the first. */
+    @Volatile
+    private var lastAutoSyncAtMillis = 0L
+
+    /**
+     * `true` when a record just written should be uploaded now: enough have
+     * accumulated (`autoSyncThreshold`) and the last automatic upload is at
+     * least `autoSyncInterval` back. Answering yes counts as that upload.
+     *
+     * [urgent] for a change of motion, which does not wait out the interval:
+     * where the device set off from and where it stopped are worth more than
+     * an even spacing.
+     */
+    fun shouldAutoSync(urgent: Boolean = false): Boolean {
         if (!config.autoSync || config.url.isEmpty()) return false
+
+        val now = SystemClock.elapsedRealtime()
+        val interval = config.autoSyncInterval
+        val tooSoon = interval > 0 && lastAutoSyncAtMillis != 0L &&
+            now - lastAutoSyncAtMillis < interval
+        if (tooSoon && !urgent) return false
+
         val threshold = config.autoSyncThreshold
-        return threshold <= 0 || database.locationCount() >= threshold
+        if (threshold > 0 && database.locationCount() < threshold) return false
+
+        lastAutoSyncAtMillis = now
+        return true
     }
 
     private fun uploadBatches(synced: MutableList<JSONObject>) {
@@ -160,7 +183,21 @@ class HttpUploader(private val context: Context) {
      * a shared server can attribute records without the host app doing
      * anything. User-supplied `params` win on key collisions.
      */
-    private fun buildBody(payload: Any): JSONObject =
+    private fun buildBody(payload: Any): JSONObject {
+        val template = config.locationTemplate
+        if (template.isNotEmpty()) {
+            // The host has said what its server takes; nothing is added to it.
+            return RequestBodyBuilder.buildFromTemplate(
+                payload = payload,
+                template = template,
+                rootProperty = config.httpRootProperty,
+                params = config.params
+            )
+        }
+        return buildStandardBody(payload)
+    }
+
+    private fun buildStandardBody(payload: Any): JSONObject =
         RequestBodyBuilder.build(
             payload = payload,
             rootProperty = config.httpRootProperty,
@@ -257,12 +294,7 @@ class HttpUploader(private val context: Context) {
                     onRequestSucceeded()
                 } else {
                     networkMonitor.onUploadFailed("HTTP ${response.code}")
-                    // 4xx (except 408/429) means the server rejected the payload
-                    // itself — retrying identical data will not help, so drop the
-                    // record rather than block the queue behind it forever.
-                    val isRetryable = response.code !in 400..499 ||
-                        response.code == 408 || response.code == 429
-                    if (isRetryable) {
+                    if (keepsRecords(response.code)) {
                         onRequestFailed()
                     } else {
                         database.appendLog(
@@ -330,6 +362,23 @@ class HttpUploader(private val context: Context) {
         private const val MAX_BACKOFF_MILLIS = 300_000L // 5 minutes
         private const val SAFETY_ITERATIONS = 5
         private const val MAX_ITERATIONS = 10_000
+
+        /**
+         * Whether the records of an upload the server turned down with
+         * [status] stay in the queue to be sent again.
+         *
+         * A 4xx says the server will not take this payload, and sending the
+         * same data again will not change its mind: the records are dropped
+         * so the queue is not blocked behind them forever. Three are about
+         * something else. 408 and 429 are the server asking for the request
+         * later. 401 is about who is sending and not what is sent: the token
+         * has run out, and the records go as they are once the host has
+         * handed over a fresh one. Dropped on a 401, a queue that had built
+         * up with no network was emptied batch by batch by the first upload
+         * after an expired token.
+         */
+        internal fun keepsRecords(status: Int): Boolean =
+            status !in 400..499 || status == 401 || status == 408 || status == 429
     }
 
     private fun emitHttpEvent(success: Boolean, status: Int, responseText: String) {

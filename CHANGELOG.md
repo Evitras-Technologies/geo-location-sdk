@@ -8,6 +8,99 @@ under [docs/](docs/) is updated alongside every change listed below.
 ## [Unreleased]
 
 ### Added
+- **`locationTemplate`: upload a record in the server's own shape.** A JSON
+  object written as text, with `<%= latitude %>`-style tags. With one set, the
+  request body is that object and `params` only: no device identity and no
+  network report, which a server that validates its input refuses. Until now
+  such a server could only be reached by posting from JavaScript, which is
+  the one part of tracking that does not survive the screen being off on
+  phones that hold background apps back.
+- **`autoSyncInterval`: at most one automatic upload per interval.** Fixes can
+  be taken often (for a fresh position and steady accuracy) while the server
+  is sent one no more often than it wants; the upload carries the newest fix.
+  A change of motion is uploaded regardless.
+
+### Fixed
+- **A 401 no longer empties the queue.** Any 4xx other than 408 and 429
+  dropped the records it was answered for, 401 among them. With no
+  `authorization.refreshUrl` configured (a host that renews its own token and
+  hands it over with `setConfig`), the first upload after the token ran out
+  therefore threw away everything queued, one batch per request. The records
+  now stay, the upload is retried with backoff, and `sync()` sends them as
+  soon as the host has set the new token.
+- **`minimumAccuracy` holds for every stored location.** The one-off fix of
+  a motion change or a stationary check bypassed it and could be uploaded at
+  any accuracy; it is still handed to listeners, but no longer stored.
+- **`maxRecordsToPersist` is kept to on every write.** It was enforced once
+  every few minutes, so a queue meant to hold only the newest position could
+  upload older ones first.
+- **GPS no longer stays on when activity recognition is silent.** The `still`
+  activity was the only trigger for the stop timeout, so with the
+  physical-activity permission denied, or the signal throttled by the OEM, the
+  SDK never left the moving state — full-power GPS through every halt. A
+  second timer, re-armed only by real displacement, now returns to stationary
+  `stopTimeout` minutes after the device last actually moved.
+- **A stop is no longer undone by the previous stop's position.** On going
+  stationary, the passive drift watch started before the new parked position
+  was recorded, so it measured the device against wherever it had last been
+  parked — typically kilometres back — and switched straight to moving again.
+  From the second stop of any journey, the GPS therefore never turned off. The
+  parked position is now cleared on every state change and set by the
+  transition fix.
+- **No GPS fix on every service restart while stationary.** The watchdog tick
+  (every 15 min) and each `ready()` re-ran the stationary transition — a GPS
+  fix and a `motionchange` event each time — because the check for "already
+  engaged" looked at the location callback, which is off while stationary.
+- **`location.age` is immune to a wrong device clock.** It was the device's
+  wall clock minus the fix's (satellite) time, so a mis-set clock made every
+  fix look minutes old. It is now measured on the monotonic clock.
+- **Builds on React Native 0.80+.** RN 0.80 moved several Android classes to
+  Kotlin, which broke compilation: the inherited `currentActivity` property is
+  gone (now read from the React context), `PermissionListener` takes
+  `Array<String>`, and `ReadableArray.getMap/getArray` return nullable types.
+  All three changes also compile against older React Native.
+- **New-Architecture apps build.** `package.json` declared a `codegenConfig`,
+  but the module is a bridge module with no TurboModule spec and its Gradle
+  file never runs codegen. Autolinking still pointed the app's CMake at the
+  codegen output, which never existed, failing every New-Architecture build.
+  The declaration is removed; the module keeps working through the interop
+  layer.
+- **Events reach JS on the New Architecture.** Android looked up the React
+  context through `reactNativeHost.reactInstanceManager`, which in a bridgeless
+  app is a second, never-started instance — so `onLocation` and every other
+  listener stayed silent with the app open. The context now comes from
+  `ReactHost` first, and a legacy instance is only read when one exists.
+- **The background-location disclosure is shown only when it is needed.**
+  `requestAllPermissions()` (and `autoRequestPermissions`) showed the prominent
+  disclosure and sent the user to Settings on every call, even when "Allow all
+  the time" was already granted.
+- **Uploads from JS no longer stall in the background.** React Native stops
+  JS timers once the app leaves the foreground unless a headless task is
+  running, and `fetch` resolves through `setTimeout(0)` — so a listener's
+  request completed on the wire but its promise never settled, and anything
+  waiting on it stalled for good. With `enableHeadless: true`, events are now
+  delivered to the headless task whenever the app is not in the foreground,
+  even while its JS is still alive, which keeps timers running for as long as
+  the task's work takes. **Behaviour change:** in that state listeners such as
+  `onLocation` no longer fire; register the same handling in the headless task.
+- **No replay of stale events after the process is killed.** The headless
+  service inherited React Native's `START_REDELIVER_INTENT`, so a restarted
+  process received every earlier event again in one burst — locations minutes
+  old, delivered as if new. It now returns `START_NOT_STICKY`.
+- **A missed departure is caught within one stationary interval.** While
+  parked, the fix taken every `stationaryUpdateInterval` seconds was reported
+  but never compared with the parked position, so when activity recognition,
+  the significant-motion sensor and the stationary geofence all missed a
+  departure (throttled on some OEMs, absent on emulators) tracking stayed in
+  the stationary state for good. That fix now runs the same drift check as the
+  passive watch and resumes moving tracking.
+- **No more all-day wake lock.** The tracking service held a partial wake lock
+  for its whole life (up to 24 h), so a parked device never let its CPU sleep.
+  The lock is now held only in bounded spans: renewed by each fix while moving
+  (lapsing 10 min after the last one), for 15 s around each event delivered to
+  JS, and released when the device goes stationary.
+
+### Added
 - **SDK-managed permission onboarding** — `autoRequestPermissions: true` makes
   `ready()` run the whole sequence (foreground location → prominent disclosure
   → background location → GPS enable prompt → battery-optimization exemption),

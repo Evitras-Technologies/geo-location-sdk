@@ -221,6 +221,23 @@ export interface Config {
   /** HTTP headers sent with each upload. */
   headers?: Record<string, string>;
   /**
+   * The shape of one uploaded record: a JSON object written as text, with
+   * `<%= name %>` tags replaced by that value of the record.
+   *
+   * ```ts
+   * httpRootProperty: '.',
+   * locationTemplate: '{"lat":<%= latitude %>,"lng":<%= longitude %>,"at":"<%= timestamp %>"}',
+   * ```
+   *
+   * Tags: `latitude`, `longitude`, `accuracy`, `speed`, `heading`,
+   * `altitude`, `timestamp`, `uuid`, `event`, `is_moving`, `odometer`, or a
+   * dotted path such as `battery.level`. Text is not quoted for you. With a
+   * template the request body is that object and `params`: no device identity
+   * or network report is added, so it suits a server that refuses fields it
+   * does not know.
+   */
+  locationTemplate?: string;
+  /**
    * Bearer/JWT authorization with automatic token refresh.
    *
    * The SDK sends `Authorization: Bearer <accessToken>` on every upload. When
@@ -248,6 +265,13 @@ export interface Config {
   autoSync?: boolean;
   /** Wait until this many records accumulate before auto-syncing. Default `0`. */
   autoSyncThreshold?: number;
+  /**
+   * Least time between two automatic uploads, in ms. Default `0` (every
+   * record is uploaded as it is written). With fixes taken more often than
+   * this, the upload that goes carries the newest one. A change of motion is
+   * uploaded regardless.
+   */
+  autoSyncInterval?: number;
   /** Upload all pending records in a single request (JSON array). Default `false`. */
   batchSync?: boolean;
   /** Cap the number of records per batch request. Default `-1` (unlimited). */
